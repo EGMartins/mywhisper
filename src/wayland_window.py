@@ -65,8 +65,8 @@ class WaylandWindow(QWidget):
         # Record button
         self.record_button = QPushButton('Hold to Record')
         self.record_button.setCheckable(True)
-        self.record_button.pressed.connect(self.start_recording)
-        self.record_button.released.connect(self.stop_recording)
+        self.record_button.pressed.connect(self.on_button_pressed)
+        self.record_button.released.connect(self.on_button_released)
         self.record_button.setStyleSheet("""
             QPushButton {
                 padding: 15px;
@@ -157,13 +157,26 @@ class WaylandWindow(QWidget):
             self.activateWindow()
             self.move_to_corner()
 
+    def on_button_pressed(self):
+        logger.info("Button pressed - starting recording")
+        self.start_recording()
+
+    def on_button_released(self):
+        logger.info("Button released - stopping recording")
+        self.stop_recording()
+
     def start_recording(self):
         if not self.is_recording:
             self.is_recording = True
             self.status_label.setText('🔴 Recording...')
             self.record_button.setText('Release to Stop')
-            self.app_controller.start_recording()
-            logger.info("Started recording (GUI button)")
+            try:
+                self.app_controller.audio_capture.start_recording()
+                logger.info("Started recording (GUI button)")
+            except Exception as e:
+                logger.error(f"Failed to start recording: {e}")
+                self.status_label.setText(f'Error: {str(e)[:20]}')
+                self.is_recording = False
 
     def stop_recording(self):
         if self.is_recording:
