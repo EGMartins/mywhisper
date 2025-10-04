@@ -1,4 +1,4 @@
-import pyaudio
+import sounddevice as sd
 import wave
 import threading
 import queue
@@ -16,15 +16,14 @@ class AudioCapture:
         sample_rate: int = 16000,
         channels: int = 1,
         chunk_size: int = 1024,
-        audio_format: int = pyaudio.paInt16
+        audio_format: str = 'int16'
     ):
         self.sample_rate = sample_rate
         self.channels = channels
         self.chunk_size = chunk_size
-        self.format = audio_format
+        self.dtype = audio_format
 
-        self.audio = pyaudio.PyAudio()
-        self.stream: Optional[pyaudio.Stream] = None
+        self.stream: Optional[sd.InputStream] = None
         self.is_recording = False
         self.audio_queue = queue.Queue()
         self.recording_thread: Optional[threading.Thread] = None
@@ -38,19 +37,14 @@ class AudioCapture:
         self.audio_queue = queue.Queue()
 
         try:
-            self.stream = self.audio.open(
-                format=self.format,
+            self.stream = sd.InputStream(
+                samplerate=self.sample_rate,
                 channels=self.channels,
-                rate=self.sample_rate,
-                input=True,
-                frames_per_buffer=self.chunk_size
+                dtype=self.dtype,
+                blocksize=self.chunk_size,
+                callback=self._audio_callback
             )
-
-            self.recording_thread = threading.Thread(
-                target=self._record_audio,
-                daemon=True
-            )
-            self.recording_thread.start()
+            self.stream.start()
             logger.info("Started recording")
 
         except Exception as e:
@@ -58,14 +52,11 @@ class AudioCapture:
             self.is_recording = False
             raise
 
-    def _record_audio(self) -> None:
-        while self.is_recording:
-            try:
-                data = self.stream.read(self.chunk_size, exception_on_overflow=False)
-                self.audio_queue.put(data)
-            except Exception as e:
-                logger.error(f"Error during recording: {e}")
-                break
+    def _audio_callback(self, indata, frames, time, status):
+        if status:
+            logger.warning(f"Audio callback status: {status}")
+        if self.is_recording:
+            self.audio_queue.put(indata.copy())
 
     def stop_recording(self) -> Optional[str]:
         if not self.is_recording:
@@ -74,11 +65,8 @@ class AudioCapture:
 
         self.is_recording = False
 
-        if self.recording_thread:
-            self.recording_thread.join(timeout=1.0)
-
         if self.stream:
-            self.stream.stop_stream()
+            self.stream.stop()
             self.stream.close()
 
         logger.info("Stopped recording")
@@ -97,40 +85,45 @@ class AudioCapture:
         temp_file.close()
 
         try:
-            with wave.open(temp_filename, 'wb') as wf:
-                wf.setnchannels(self.channels)
-                wf.setsampwidth(self.audio.get_sample_size(self.format))
-                wf.setframerate(self.sample_rate)
+            audio_data = []
+            while not self.audio_queue.empty():
+                audio_data.append(self.audio_queue.get())
 
-                while not self.audio_queue.empty():
-                    data = self.audio_queue.get()
-                    wf.writeframes(data)
+            if audio_data:
+                audio_array = np.concatenate(audio_data)
 
-            logger.info(f"Audio saved to {temp_filename}")
-            return temp_filename
+                with wave.open(temp_filename, 'wb') as wf:
+                    wf.setnchannels(self.channels)
+                    wf.setsampwidth(2)  # 2 bytes for int16
+                    wf.setframerate(self.sample_rate)
+                    wf.writeframes(audio_array.tobytes())
+
+                logger.info(f"Audio saved to {temp_filename}")
+                return temp_filename
+            else:
+                logger.warning("No audio data collected")
+                return None
 
         except Exception as e:
             logger.error(f"Failed to save audio: {e}")
             return None
 
     def get_audio_level(self) -> float:
-        if not self.is_recording or not self.stream:
+        if not self.is_recording:
             return 0.0
 
         try:
-            data = self.stream.read(self.chunk_size, exception_on_overflow=False)
-            audio_data = np.frombuffer(data, dtype=np.int16)
-            level = np.abs(audio_data).mean() / 32768.0
-            return level
+            if not self.audio_queue.empty():
+                data = list(self.audio_queue.queue)[-1]
+                level = np.abs(data).mean() / 32768.0
+                return float(level)
         except:
-            return 0.0
+            pass
+        return 0.0
 
     def cleanup(self) -> None:
         if self.is_recording:
             self.stop_recording()
-
-        if self.audio:
-            self.audio.terminate()
 
     def __del__(self):
         self.cleanup()
