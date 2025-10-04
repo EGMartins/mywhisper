@@ -1,9 +1,9 @@
 faster-whisper
-sounddevice==0.4.6
-pynput==1.7.6
-pyautogui==0.9.54
-pystray==0.19.5
-Pillow==10.2.0
+sounddevice
+pynput
+pyautogui
+pystray
+Pillow
 numpy
 scipy
-pyperclip==1.8.2
+pyperclip
