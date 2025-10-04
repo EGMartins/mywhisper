@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
+import os
 import signal
 import logging
 import threading
@@ -12,7 +13,7 @@ from src.gui.system_tray import SystemTrayIcon
 from src.config import Config
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -36,14 +37,24 @@ class MyWhisperApp:
             language=self.config.get_language()
         )
 
-        self.hotkey_manager = HotkeyManager()
-        self.hotkey_manager.set_hotkey(self.config.get_hotkey())
-        self.hotkey_manager.set_recording_mode(self.config.get_recording_mode())
-        self.hotkey_manager.register_callback(self.handle_hotkey)
-
         self.text_inserter = TextInserter()
 
-        self.system_tray = SystemTrayIcon(self)
+        # Check if we're on Wayland
+        self.is_wayland = os.environ.get('XDG_SESSION_TYPE') == 'wayland'
+
+        if self.is_wayland:
+            logger.info("Wayland detected - using GUI mode")
+            self.hotkey_manager = None
+            self.system_tray = None
+            self.wayland_window = None
+        else:
+            logger.info("X11 detected - using hotkey mode")
+            self.hotkey_manager = HotkeyManager()
+            self.hotkey_manager.set_hotkey(self.config.get_hotkey())
+            self.hotkey_manager.set_recording_mode(self.config.get_recording_mode())
+            self.hotkey_manager.register_callback(self.handle_hotkey)
+            self.system_tray = SystemTrayIcon(self)
+            self.wayland_window = None
 
         self.is_recording = False
         self.running = True
@@ -109,16 +120,33 @@ class MyWhisperApp:
     def run(self):
         logger.info("Starting MyWhisper...")
 
-        self.hotkey_manager.start()
+        if self.is_wayland:
+            # Use PyQt6 for Wayland
+            from PyQt6.QtWidgets import QApplication
+            from src.wayland_window import WaylandWindow
 
-        self.system_tray.run()
+            app = QApplication(sys.argv)
+            app.setApplicationName("MyWhisper")
+            app.setApplicationDisplayName("MyWhisper")
 
-        try:
-            while self.running:
-                threading.Event().wait(1)
-        except KeyboardInterrupt:
-            logger.info("Received keyboard interrupt")
-            self.quit()
+            self.wayland_window = WaylandWindow(self)
+            self.wayland_window.show()
+
+            sys.exit(app.exec())
+        else:
+            # Use hotkeys for X11
+            if self.hotkey_manager:
+                self.hotkey_manager.start()
+
+            if self.system_tray:
+                self.system_tray.run()
+
+            try:
+                while self.running:
+                    threading.Event().wait(1)
+            except KeyboardInterrupt:
+                logger.info("Received keyboard interrupt")
+                self.quit()
 
     def quit(self):
         logger.info("Shutting down MyWhisper...")
@@ -127,11 +155,13 @@ class MyWhisperApp:
         if self.is_recording:
             self.stop_recording()
 
-        self.hotkey_manager.stop()
+        if self.hotkey_manager:
+            self.hotkey_manager.stop()
 
         self.audio_capture.cleanup()
 
-        sys.exit(0)
+        if not self.is_wayland:
+            sys.exit(0)
 
 
 def signal_handler(signum, frame):
