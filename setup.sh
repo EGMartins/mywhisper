@@ -17,7 +17,7 @@ echo "Python $python_version found ✓"
 echo ""
 echo "Installing system dependencies..."
 sudo apt-get update
-sudo apt-get install -y python3-pip python3-venv portaudio19-dev python3-dev
+sudo apt-get install -y python3-pip python3-venv portaudio19-dev python3-dev xclip xdotool
 
 echo ""
 echo "Creating virtual environment..."

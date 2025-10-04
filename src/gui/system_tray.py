@@ -112,12 +112,16 @@ class SystemTrayIcon:
         self.app_controller.quit()
 
     def run(self):
-        def run_icon():
-            self.icon.run()
-
-        thread = threading.Thread(target=run_icon, daemon=True)
-        thread.start()
-        logger.info("System tray icon started")
+        try:
+            # Run in main thread for better compatibility
+            self.icon.run_detached()
+            logger.info("System tray icon started")
+        except Exception as e:
+            logger.error(f"Failed to start system tray: {e}")
+            # Fallback to threaded approach
+            thread = threading.Thread(target=self.icon.run, daemon=True)
+            thread.start()
+            logger.info("System tray icon started in thread")
 
     def stop(self):
         if self.icon:

@@ -62,9 +62,11 @@ class HotkeyManager:
 
     def _on_press(self, key) -> None:
         self.current_keys.add(key)
+        logger.debug(f"Key pressed: {key}, Current keys: {self.current_keys}")
 
         if self._is_hotkey_pressed() and not self.is_pressed:
             self.is_pressed = True
+            logger.info(f"Hotkey activated! Mode: {self.recording_mode}")
             if self.hotkey_callback:
                 if self.recording_mode == "push":
                     threading.Thread(
@@ -80,12 +82,14 @@ class HotkeyManager:
     def _on_release(self, key) -> None:
         try:
             self.current_keys.remove(key)
+            logger.debug(f"Key released: {key}, Current keys: {self.current_keys}")
         except KeyError:
             pass
 
         if self.recording_mode == "push" and self.is_pressed:
             if not self._is_hotkey_pressed():
                 self.is_pressed = False
+                logger.info("Hotkey released - stopping recording")
                 if self.hotkey_callback:
                     threading.Thread(
                         target=lambda: self.hotkey_callback("stop"),
