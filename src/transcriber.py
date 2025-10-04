@@ -1,4 +1,4 @@
-import whisper
+from faster_whisper import WhisperModel
 import os
 import threading
 from typing import Optional, Callable
@@ -8,13 +8,13 @@ logger = logging.getLogger(__name__)
 
 
 class WhisperTranscriber:
-    AVAILABLE_MODELS = ["tiny", "base", "small", "medium", "large"]
+    AVAILABLE_MODELS = ["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"]
 
     def __init__(
         self,
         model_name: str = "base",
         language: str = "en",
-        device: Optional[str] = None
+        device: str = "auto"
     ):
         self.model_name = model_name if model_name in self.AVAILABLE_MODELS else "base"
         self.language = language
@@ -25,9 +25,13 @@ class WhisperTranscriber:
     def _load_model(self) -> None:
         try:
             logger.info(f"Loading Whisper model: {self.model_name}")
-            self.model = whisper.load_model(
+            # Faster-whisper uses different model format
+            compute_type = "int8" if self.device == "cpu" else "float16"
+
+            self.model = WhisperModel(
                 self.model_name,
-                device=self.device
+                device=self.device,
+                compute_type=compute_type
             )
             logger.info(f"Model {self.model_name} loaded successfully")
         except Exception as e:
@@ -50,13 +54,16 @@ class WhisperTranscriber:
         try:
             logger.info(f"Transcribing audio file: {audio_file}")
 
-            result = self.model.transcribe(
+            # Faster-whisper returns segments
+            segments, info = self.model.transcribe(
                 audio_file,
                 language=self.language,
-                fp16=False
+                beam_size=5
             )
 
-            text = result["text"].strip()
+            # Combine all segments into text
+            text = " ".join(segment.text for segment in segments).strip()
+
             logger.info(f"Transcription complete: {text[:50]}...")
 
             if callback:
@@ -97,6 +104,8 @@ class WhisperTranscriber:
             return True
 
         try:
+            # Clear existing model
+            del self.model
             self.model_name = model_name
             self._load_model()
             return True
