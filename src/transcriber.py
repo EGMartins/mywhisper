@@ -26,14 +26,18 @@ class WhisperTranscriber:
         try:
             logger.info(f"Loading Whisper model: {self.model_name}")
             # Faster-whisper uses different model format
-            compute_type = "int8" if self.device == "cpu" else "float16"
+            # Use int8 for CPU, auto for GPU to let it choose the best type
+            if self.device == "cpu" or self.device == "auto":
+                compute_type = "int8"
+            else:
+                compute_type = "auto"
 
             self.model = WhisperModel(
                 self.model_name,
                 device=self.device,
                 compute_type=compute_type
             )
-            logger.info(f"Model {self.model_name} loaded successfully")
+            logger.info(f"Model {self.model_name} loaded successfully with compute type: {compute_type}")
         except Exception as e:
             logger.error(f"Failed to load model: {e}")
             raise
